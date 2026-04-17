@@ -1,0 +1,12 @@
+{
+  "name": "@ops-hub/config",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["tsconfig"],
+  "scripts": {
+    "typecheck": "echo '(config) no ts'",
+    "lint": "echo '(config) lint ok'",
+    "test": "echo '(config) no tests'",
+    "build": "echo '(config) nothing to build'"
+  }
+}

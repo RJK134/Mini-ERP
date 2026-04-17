@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: opshub-postgres
+    environment:
+      POSTGRES_USER: opshub
+      POSTGRES_PASSWORD: opshub
+      POSTGRES_DB: opshub
+    ports:
+      - "5432:5432"
+    volumes:
+      - opshub-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opshub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: opshub-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - opshub-minio-data:/data
+
+volumes:
+  opshub-pg-data:
+  opshub-minio-data:
