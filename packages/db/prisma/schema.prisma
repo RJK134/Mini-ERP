@@ -1,0 +1,389 @@
+// AI Operations Hub — canonical schema.
+// Narrow, explicit, event-friendly. See CLAUDE.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Enums ----------------
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  OPERATOR
+  REVIEWER
+  VIEWER
+}
+
+enum InboundSource {
+  EMAIL
+  FORM
+  MANUAL
+}
+
+enum InboundStatus {
+  RECEIVED
+  NORMALIZED
+  EXTRACTED
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum CaseStatus {
+  NEW
+  TRIAGE
+  AWAITING_INFO
+  QUALIFIED
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CLOSED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DraftType {
+  ACKNOWLEDGEMENT
+  REQUEST_FOR_INFO
+  CONFIRMATION
+  INTERNAL_SUMMARY
+}
+
+enum ActivityType {
+  INBOUND_RECEIVED
+  EXTRACTION_RUN
+  EXTRACTION_APPROVED
+  CASE_CREATED
+  CASE_UPDATED
+  ASSIGNED
+  TASK_CREATED
+  DRAFT_GENERATED
+  MESSAGE_SENT
+  STATUS_CHANGED
+}
+
+// ---------------- Core ----------------
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  teams          Team[]
+  contacts       Contact[]
+  inboundItems   InboundItem[]
+  inboundAttachments InboundAttachment[]
+  extractionRuns ExtractionRun[]
+  cases          Case[]
+  tasks          Task[]
+  teamMembers    TeamMember[]
+  drafts         MessageDraft[]
+  messages       OutboundMessage[]
+  workflowRules  WorkflowRule[]
+  subscriptions  Subscription[]
+  activityEvents ActivityEvent[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  name      String
+  role      UserRole
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teamMembers   TeamMember[]
+  assignedCases Case[]          @relation("CaseAssignee")
+  createdTasks  Task[]          @relation("TaskCreator")
+  assignedTasks Task[]          @relation("TaskAssignee")
+  activities    ActivityEvent[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, role])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members TeamMember[]
+  cases   Case[]
+
+  @@index([tenantId])
+}
+
+model TeamMember {
+  id       String @id @default(cuid())
+  tenantId String
+  teamId   String
+  userId   String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([tenantId, userId])
+}
+
+model Contact {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String?
+  phone        String?
+  firstName    String?
+  lastName     String?
+  organization String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inboundItems InboundItem[]
+  cases        Case[]
+
+  @@index([tenantId, email])
+  @@index([tenantId, phone])
+}
+
+// Immutable raw trigger.
+model InboundItem {
+  id             String        @id @default(cuid())
+  tenantId       String
+  source         InboundSource
+  status         InboundStatus @default(RECEIVED)
+  externalId     String?
+  subject        String?
+  fromName       String?
+  fromEmail      String?
+  fromPhone      String?
+  normalizedText String?
+  rawPayload     Json
+  receivedAt     DateTime
+  contactId      String?
+  approvedCaseId String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact        Contact?            @relation(fields: [contactId], references: [id])
+  approvedCase   Case?               @relation("ApprovedFromInbound", fields: [approvedCaseId], references: [id])
+  attachments    InboundAttachment[]
+  extractionRuns ExtractionRun[]
+  activityEvents ActivityEvent[]
+
+  @@unique([tenantId, source, externalId])
+  @@index([tenantId, source, status])
+  @@index([tenantId, receivedAt])
+}
+
+model InboundAttachment {
+  id            String   @id @default(cuid())
+  tenantId      String
+  inboundItemId String
+  fileName      String
+  mimeType      String?
+  fileSize      Int?
+  storageKey    String
+  createdAt     DateTime @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inboundItem InboundItem @relation(fields: [inboundItemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, inboundItemId])
+}
+
+model ExtractionRun {
+  id              String   @id @default(cuid())
+  tenantId        String
+  inboundItemId   String
+  modelName       String
+  promptVersion   String
+  status          String
+  confidenceScore Float?
+  extractedData   Json
+  warnings        Json?
+  createdAt       DateTime @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inboundItem InboundItem @relation(fields: [inboundItemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, inboundItemId])
+}
+
+model Case {
+  id              String     @id @default(cuid())
+  tenantId        String
+  reference       String     @unique
+  status          CaseStatus @default(NEW)
+  priority        Priority   @default(MEDIUM)
+  title           String
+  summary         String?
+  serviceType     String?
+  requestedDate   DateTime?
+  locationText    String?
+  qualifiedAt     DateTime?
+  scheduledAt     DateTime?
+  closedAt        DateTime?
+  contactId       String?
+  teamId          String?
+  assigneeId      String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact        Contact?          @relation(fields: [contactId], references: [id])
+  sourceInbound  InboundItem?      @relation("ApprovedFromInbound")
+  team           Team?             @relation(fields: [teamId], references: [id])
+  assignee       User?             @relation("CaseAssignee", fields: [assigneeId], references: [id])
+  tasks          Task[]
+  drafts         MessageDraft[]
+  messages       OutboundMessage[]
+  activityEvents ActivityEvent[]
+
+  @@index([tenantId, status, priority])
+  @@index([tenantId, assigneeId, status])
+  @@index([tenantId, teamId, status])
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  tenantId    String
+  caseId      String
+  title       String
+  description String?
+  status      TaskStatus @default(OPEN)
+  dueAt       DateTime?
+  assigneeId  String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case      Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  assignee  User?  @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy User?  @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([tenantId, caseId, status])
+  @@index([tenantId, assigneeId, dueAt])
+}
+
+model MessageDraft {
+  id        String    @id @default(cuid())
+  tenantId  String
+  caseId    String
+  draftType DraftType
+  subject   String?
+  body      String
+  status    String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, caseId, draftType])
+}
+
+model OutboundMessage {
+  id         String    @id @default(cuid())
+  tenantId   String
+  caseId     String
+  channel    String
+  recipient  String
+  subject    String?
+  body       String
+  sentAt     DateTime?
+  externalId String?
+  createdAt  DateTime  @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, caseId, sentAt])
+}
+
+model WorkflowRule {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  isActive    Boolean  @default(true)
+  triggerType String
+  conditions  Json
+  actions     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive])
+}
+
+// Append-only audit + analytics.
+model ActivityEvent {
+  id            String       @id @default(cuid())
+  tenantId      String
+  type          ActivityType
+  actorUserId   String?
+  inboundItemId String?
+  caseId        String?
+  payload       Json?
+  createdAt     DateTime     @default(now())
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actorUser   User?        @relation(fields: [actorUserId], references: [id])
+  inboundItem InboundItem? @relation(fields: [inboundItemId], references: [id])
+  case        Case?        @relation(fields: [caseId], references: [id])
+
+  @@index([tenantId, type, createdAt])
+  @@index([tenantId, caseId, createdAt])
+  @@index([tenantId, inboundItemId, createdAt])
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  tenantId    String
+  provider    String
+  providerRef String
+  planCode    String
+  status      String
+  seats       Int?
+  usageLimit  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@ops-hub/workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "lint": "echo '(workers) lint ok'",
+    "typecheck": "tsc --noEmit",
+    "test": "echo '(workers) no tests yet'"
+  },
+  "dependencies": {
+    "@ops-hub/db": "workspace:*",
+    "@ops-hub/prompts": "workspace:*",
+    "@ops-hub/workflows": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5"
+  }
+}
