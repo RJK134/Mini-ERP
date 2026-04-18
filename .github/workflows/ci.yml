@@ -13,26 +13,24 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: opshub
-          POSTGRES_PASSWORD: opshub
-          POSTGRES_DB: opshub_test
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: ci_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U opshub"
+          --health-cmd="pg_isready -U ci"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
 
     env:
-      DATABASE_URL: postgresql://opshub:opshub@localhost:5432/opshub_test?schema=public
+      DATABASE_URL: postgresql://ci:${{ github.run_id }}@localhost:5432/ci_test?schema=public
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:

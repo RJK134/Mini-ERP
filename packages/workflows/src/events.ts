@@ -1,4 +1,4 @@
-import { prisma, ActivityType } from "@ops-hub/db";
+import { prisma, Prisma, ActivityType } from "@ops-hub/db";
 
 export interface RecordEventInput {
   tenantId: string;
@@ -6,7 +6,7 @@ export interface RecordEventInput {
   actorUserId?: string | null;
   inboundItemId?: string | null;
   caseId?: string | null;
-  payload?: unknown;
+  payload?: Prisma.InputJsonValue;
 }
 
 export async function recordEvent(input: RecordEventInput) {
@@ -17,7 +17,7 @@ export async function recordEvent(input: RecordEventInput) {
       actorUserId: input.actorUserId ?? null,
       inboundItemId: input.inboundItemId ?? null,
       caseId: input.caseId ?? null,
-      payload: (input.payload as object | null | undefined) ?? undefined,
+      payload: input.payload ?? Prisma.JsonNull,
     },
   });
 }

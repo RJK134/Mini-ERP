@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, InboundSource, InboundStatus, CaseStatus, Priority, ActivityType } from "@prisma/client";
+import { PrismaClient, Prisma, UserRole, InboundSource, InboundStatus, CaseStatus, Priority, ActivityType } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -111,7 +111,7 @@ async function main() {
         preferredWindow: "after 14:00 today",
         summary: "Kitchen mixer tap dripping, worsening; customer available after 2pm.",
       },
-      warnings: null,
+      warnings: Prisma.JsonNull,
     },
   });
 
