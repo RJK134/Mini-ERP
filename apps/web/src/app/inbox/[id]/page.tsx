@@ -1,10 +1,18 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@ops-hub/db";
+import { prisma, InboundStatus } from "@ops-hub/db";
 import { Card, CardBody, CardHeader, StatusPill } from "@ops-hub/ui";
 import { getCurrentTenant } from "@/lib/tenant";
 import { ApproveForm } from "./approve-form";
+import { RetryButton } from "./retry-button";
 
 export const dynamic = "force-dynamic";
+
+function bytes(n: number | null | undefined): string {
+  if (!n) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export default async function InboundDetailPage({ params }: { params: { id: string } }) {
   const tenant = await getCurrentTenant();
@@ -12,7 +20,7 @@ export default async function InboundDetailPage({ params }: { params: { id: stri
     where: { id: params.id, tenantId: tenant.id },
     include: {
       contact: true,
-      attachments: true,
+      attachments: { orderBy: { createdAt: "asc" } },
       extractionRuns: { orderBy: { createdAt: "desc" } },
     },
   });
@@ -34,6 +42,19 @@ export default async function InboundDetailPage({ params }: { params: { id: stri
           </span>
         </div>
       </header>
+
+      {item.status === InboundStatus.FAILED && (
+        <div className="mb-6">
+          <Card className="border-red-200 bg-red-50">
+            <CardBody className="flex items-center justify-between">
+              <div className="text-sm text-red-800">
+                Ingestion failed. Reset to <span className="font-mono">RECEIVED</span> to let the worker retry.
+              </div>
+              <RetryButton inboundId={item.id} />
+            </CardBody>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card className="md:col-span-2">
@@ -74,11 +95,46 @@ export default async function InboundDetailPage({ params }: { params: { id: stri
         </Card>
       </div>
 
-      {item.status !== "APPROVED" && item.status !== "REJECTED" && latestExtraction && (
-        <div className="mt-6">
-          <ApproveForm inboundId={item.id} />
-        </div>
+      {item.attachments.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader><h2 className="text-sm font-medium">Attachments ({item.attachments.length})</h2></CardHeader>
+          <CardBody>
+            <ul className="divide-y divide-slate-100 text-sm">
+              {item.attachments.map((a) => (
+                <li key={a.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <a
+                      href={`/api/attachments/${a.id}`}
+                      className="text-slate-900 hover:underline"
+                    >
+                      {a.fileName}
+                    </a>
+                    <div className="text-xs text-slate-500">
+                      {a.mimeType ?? "application/octet-stream"} · {bytes(a.fileSize)}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
       )}
+
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm text-slate-600">Raw payload</summary>
+        <pre className="mt-2 max-h-96 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100">
+          {JSON.stringify(item.rawPayload, null, 2)}
+        </pre>
+      </details>
+
+      {item.status !== InboundStatus.APPROVED &&
+        item.status !== InboundStatus.REJECTED &&
+        item.status !== InboundStatus.FAILED &&
+        latestExtraction && (
+          <div className="mt-6">
+            <ApproveForm inboundId={item.id} />
+          </div>
+        )}
     </div>
   );
 }
