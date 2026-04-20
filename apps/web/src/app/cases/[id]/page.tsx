@@ -6,6 +6,7 @@ import { getCurrentTenant } from "@/lib/tenant";
 import { DraftsPanel, type DraftRow } from "./drafts-panel";
 import { TasksPanel, type TaskRow } from "./tasks-panel";
 import { AssignControl, NoteForm, StatusControl } from "./controls";
+import { ScheduleForm } from "./schedule-form";
 
 export const dynamic = "force-dynamic";
 
@@ -127,6 +128,15 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
           </Card>
         </div>
       </div>
+
+      {(c.status === CaseStatus.QUALIFIED || c.status === CaseStatus.AWAITING_INFO) && (
+        <Card className="mt-6">
+          <CardHeader><h2 className="text-sm font-medium">Schedule</h2></CardHeader>
+          <CardBody>
+            <ScheduleForm caseId={c.id} defaultWindow={null} />
+          </CardBody>
+        </Card>
+      )}
 
       <Card className="mt-6">
         <CardHeader><h2 className="text-sm font-medium">Tasks ({c.tasks.length})</h2></CardHeader>
