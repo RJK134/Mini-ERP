@@ -167,7 +167,9 @@ function BoardView({ cases }: { cases: CaseRow[] }) {
             </div>
             <div className="space-y-2 rounded bg-slate-100 p-2">
               {rows.map((c) => {
-                const overdue = isOverdue(c.createdAt, c.priority);
+                const overdue =
+                  c.status !== CaseStatus.COMPLETED &&
+                  isOverdue(c.createdAt, c.priority);
                 return (
                   <Link
                     key={c.id}

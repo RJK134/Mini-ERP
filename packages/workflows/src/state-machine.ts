@@ -22,15 +22,23 @@ export function allowedTransitions(from: CaseStatus): readonly CaseStatus[] {
   return ALLOWED_TRANSITIONS[from] ?? [];
 }
 
+type TransitionTimestamps = {
+  qualifiedAt?: Date;
+  scheduledAt?: Date;
+  closedAt?: Date | null;
+};
+
 // Side-effect timestamps that get stamped when entering specific states.
-export function timestampsFor(to: CaseStatus): { qualifiedAt?: Date; scheduledAt?: Date; closedAt?: Date } {
+export function timestampsFor(to: CaseStatus): TransitionTimestamps {
   const now = new Date();
   switch (to) {
     case CaseStatus.QUALIFIED:
       return { qualifiedAt: now };
     case CaseStatus.SCHEDULED:
       return { scheduledAt: now };
+    case CaseStatus.ACTIVE:
     case CaseStatus.COMPLETED:
+      return { closedAt: null };
     case CaseStatus.CLOSED:
       return { closedAt: now };
     default:

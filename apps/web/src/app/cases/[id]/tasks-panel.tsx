@@ -88,7 +88,11 @@ export function TasksPanel({ caseId, tasks }: { caseId: string; tasks: TaskRow[]
 function TaskItem({ task }: { task: TaskRow }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
-  const overdue = task.dueAt && new Date(task.dueAt) < new Date() && task.status !== "DONE";
+  const overdue =
+    task.dueAt &&
+    new Date(task.dueAt) < new Date() &&
+    task.status !== "DONE" &&
+    task.status !== "CANCELED";
   const next = NEXT_STATUS[task.status];
 
   async function advance() {
