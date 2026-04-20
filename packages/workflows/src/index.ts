@@ -4,3 +4,4 @@ export { slaFor, isOverdue } from "./sla.js";
 export { nextCaseReference } from "./reference.js";
 export { recordEvent } from "./events.js";
 export { upsertContact } from "./contacts.js";
+export { canTransition, allowedTransitions, timestampsFor } from "./state-machine.js";
