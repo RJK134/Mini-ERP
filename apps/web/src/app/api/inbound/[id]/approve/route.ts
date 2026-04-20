@@ -26,6 +26,10 @@ const EditedExtraction = z.object({
   missingFields: z.array(z.string()).optional(),
 });
 
+function mergeNullableEdit<T>(edited: T | null | undefined, base: T | null | undefined): T | null {
+  return edited !== undefined ? edited : (base ?? null);
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getCurrentTenant();
 
@@ -43,7 +47,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const bodyJson = await req.json().catch(() => ({}));
   const edits = EditedExtraction.safeParse(bodyJson ?? {});
   if (!edits.success) {
-    return NextResponse.json({ error: "invalid edits", issues: edits.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid edits", issues: edits.error.flatten() },
+      { status: 400 },
+    );
   }
 
   const base = (extraction.extractedData ?? {}) as {
@@ -56,10 +63,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   };
 
   const merged = {
-    serviceType: edits.data.serviceType ?? base.serviceType ?? null,
+    serviceType: mergeNullableEdit(edits.data.serviceType, base.serviceType),
     priority: (edits.data.priority ?? base.priority ?? Priority.MEDIUM) as Priority,
-    locationText: edits.data.locationText ?? base.locationText ?? null,
-    preferredWindow: edits.data.preferredWindow ?? base.preferredWindow ?? null,
+    locationText: mergeNullableEdit(edits.data.locationText, base.locationText),
+    preferredWindow: mergeNullableEdit(edits.data.preferredWindow, base.preferredWindow),
     summary: edits.data.summary ?? base.summary ?? "",
     missingFields: edits.data.missingFields ?? base.missingFields ?? [],
   };
@@ -67,14 +74,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rulesRaw = await prisma.workflowRule.findMany({
     where: { tenantId: tenant.id, isActive: true },
   });
-  const rules = rulesRaw.map((r): WorkflowRuleShape => ({
-    id: r.id,
-    name: r.name,
-    isActive: r.isActive,
-    triggerType: r.triggerType as WorkflowRuleShape["triggerType"],
-    conditions: r.conditions as WorkflowRuleShape["conditions"],
-    actions: r.actions as WorkflowRuleShape["actions"],
-  }));
+  const rules = rulesRaw.map(
+    (r): WorkflowRuleShape => ({
+      id: r.id,
+      name: r.name,
+      isActive: r.isActive,
+      triggerType: r.triggerType as WorkflowRuleShape["triggerType"],
+      conditions: r.conditions as WorkflowRuleShape["conditions"],
+      actions: r.actions as WorkflowRuleShape["actions"],
+    }),
+  );
 
   const assignment = evaluateAssignment(
     { serviceType: merged.serviceType, priority: merged.priority },

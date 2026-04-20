@@ -19,7 +19,9 @@ export function DraftsPanel({ drafts }: { drafts: DraftRow[] }) {
   }
   return (
     <ul className="space-y-4">
-      {drafts.map((d) => <DraftItem key={d.id} draft={d} />)}
+      {drafts.map((d) => (
+        <DraftItem key={d.id} draft={d} />
+      ))}
     </ul>
   );
 }
@@ -32,16 +34,20 @@ function DraftItem({ draft }: { draft: DraftRow }) {
   const [error, setError] = useState<string | null>(null);
   const sent = draft.status === "sent";
 
+  async function persistDraft() {
+    const res = await fetch(`/api/drafts/${draft.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject, body }),
+    });
+    if (!res.ok) throw new Error((await res.json())?.error ?? "Save failed");
+  }
+
   async function save() {
     setPending("save");
     setError(null);
     try {
-      const res = await fetch(`/api/drafts/${draft.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subject, body }),
-      });
-      if (!res.ok) throw new Error((await res.json())?.error ?? "Save failed");
+      await persistDraft();
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -54,6 +60,7 @@ function DraftItem({ draft }: { draft: DraftRow }) {
     setPending("send");
     setError(null);
     try {
+      await persistDraft();
       const res = await fetch(`/api/drafts/${draft.id}/send`, { method: "POST" });
       if (!res.ok) throw new Error((await res.json())?.error ?? "Send failed");
       router.refresh();
@@ -70,7 +77,9 @@ function DraftItem({ draft }: { draft: DraftRow }) {
         <span className="text-xs uppercase tracking-wide text-slate-500">
           {draft.draftType.replace(/_/g, " ").toLowerCase()}
         </span>
-        <span className={`rounded-full px-2 py-0.5 text-xs ${sent ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs ${sent ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}
+        >
           {draft.status}
         </span>
       </div>
