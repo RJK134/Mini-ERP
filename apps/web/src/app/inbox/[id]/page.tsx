@@ -2,10 +2,29 @@ import { notFound } from "next/navigation";
 import { prisma, InboundStatus } from "@ops-hub/db";
 import { Card, CardBody, CardHeader, StatusPill } from "@ops-hub/ui";
 import { getCurrentTenant } from "@/lib/tenant";
-import { ApproveForm } from "./approve-form";
+import { ApproveForm, type InitialExtraction } from "./approve-form";
 import { RetryButton } from "./retry-button";
 
 export const dynamic = "force-dynamic";
+
+function extractionToInitial(data: unknown): InitialExtraction {
+  const obj = (data ?? {}) as Record<string, unknown>;
+  const priority = typeof obj.priority === "string"
+    && ["LOW", "MEDIUM", "HIGH", "URGENT"].includes(obj.priority)
+    ? (obj.priority as InitialExtraction["priority"])
+    : null;
+  const missing = Array.isArray(obj.missingFields)
+    ? obj.missingFields.filter((x): x is string => typeof x === "string")
+    : [];
+  return {
+    serviceType: typeof obj.serviceType === "string" ? obj.serviceType : null,
+    priority,
+    locationText: typeof obj.locationText === "string" ? obj.locationText : null,
+    preferredWindow: typeof obj.preferredWindow === "string" ? obj.preferredWindow : null,
+    summary: typeof obj.summary === "string" ? obj.summary : "",
+    missingFields: missing,
+  };
+}
 
 function bytes(n: number | null | undefined): string {
   if (!n) return "—";
@@ -132,7 +151,10 @@ export default async function InboundDetailPage({ params }: { params: { id: stri
         item.status !== InboundStatus.FAILED &&
         latestExtraction && (
           <div className="mt-6">
-            <ApproveForm inboundId={item.id} />
+            <ApproveForm
+              inboundId={item.id}
+              initial={extractionToInitial(latestExtraction.extractedData)}
+            />
           </div>
         )}
     </div>
