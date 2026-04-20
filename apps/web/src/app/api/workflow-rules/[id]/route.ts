@@ -2,6 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma, Priority, Prisma } from "@ops-hub/db";
 import { getCurrentTenant } from "@/lib/tenant";
+import { getAuthContext, hasRole, ROLES } from "@/lib/auth";
+
+async function requireManager(req: NextRequest, tenantId: string) {
+  const ctx = await getAuthContext(tenantId, req.headers);
+  if (!ctx || !hasRole(ctx, ROLES.MANAGES_WORKFLOWS)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
 
 const Patch = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -22,6 +31,8 @@ const Patch = z.object({
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getCurrentTenant();
+  const guard = await requireManager(req, tenant.id);
+  if (guard) return guard;
   const rule = await prisma.workflowRule.findFirst({
     where: { id: params.id, tenantId: tenant.id },
   });
@@ -50,8 +61,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ ok: true, rule: updated });
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getCurrentTenant();
+  const guard = await requireManager(req, tenant.id);
+  if (guard) return guard;
   const rule = await prisma.workflowRule.findFirst({
     where: { id: params.id, tenantId: tenant.id },
   });

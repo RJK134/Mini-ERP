@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma, Priority, Prisma } from "@ops-hub/db";
 import { getCurrentTenant } from "@/lib/tenant";
+import { getAuthContext, hasRole, ROLES } from "@/lib/auth";
 
 const Create = z.object({
   name: z.string().min(1).max(120),
@@ -27,6 +28,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const tenant = await getCurrentTenant();
+  const ctx = await getAuthContext(tenant.id, req.headers);
+  if (!ctx || !hasRole(ctx, ROLES.MANAGES_WORKFLOWS)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const body = await req.json().catch(() => null);
   const parsed = Create.safeParse(body);
   if (!parsed.success) {
