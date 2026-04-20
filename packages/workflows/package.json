@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "echo '(workflows) lint ok'",
-    "test": "tsx --test src/state-machine.test.ts",
+    "test": "tsx --test src/state-machine.test.ts src/assignment.test.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {
