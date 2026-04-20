@@ -26,6 +26,12 @@ const EditedExtraction = z.object({
   missingFields: z.array(z.string()).optional(),
 });
 
+const ALREADY_REVIEWED_ERROR = "inbound item already reviewed";
+
+function reviewedValue<T>(edited: T | undefined, extracted: T | undefined): T | undefined {
+  return edited === undefined ? extracted : edited;
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getCurrentTenant();
 
@@ -34,6 +40,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: { extractionRuns: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!item) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (item.status === InboundStatus.APPROVED || item.status === InboundStatus.REJECTED) {
+    return NextResponse.json({ error: ALREADY_REVIEWED_ERROR }, { status: 409 });
+  }
 
   const extraction = item.extractionRuns[0];
   if (!extraction) {
@@ -43,7 +52,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const bodyJson = await req.json().catch(() => ({}));
   const edits = EditedExtraction.safeParse(bodyJson ?? {});
   if (!edits.success) {
-    return NextResponse.json({ error: "invalid edits", issues: edits.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid edits", issues: edits.error.flatten() },
+      { status: 400 },
+    );
   }
 
   const base = (extraction.extractedData ?? {}) as {
@@ -56,10 +68,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   };
 
   const merged = {
-    serviceType: edits.data.serviceType ?? base.serviceType ?? null,
-    priority: (edits.data.priority ?? base.priority ?? Priority.MEDIUM) as Priority,
-    locationText: edits.data.locationText ?? base.locationText ?? null,
-    preferredWindow: edits.data.preferredWindow ?? base.preferredWindow ?? null,
+    serviceType: reviewedValue(edits.data.serviceType, base.serviceType) ?? null,
+    priority: (reviewedValue(edits.data.priority, base.priority) ?? Priority.MEDIUM) as Priority,
+    locationText: reviewedValue(edits.data.locationText, base.locationText) ?? null,
+    preferredWindow: reviewedValue(edits.data.preferredWindow, base.preferredWindow) ?? null,
     summary: edits.data.summary ?? base.summary ?? "",
     missingFields: edits.data.missingFields ?? base.missingFields ?? [],
   };
@@ -67,14 +79,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rulesRaw = await prisma.workflowRule.findMany({
     where: { tenantId: tenant.id, isActive: true },
   });
-  const rules = rulesRaw.map((r): WorkflowRuleShape => ({
-    id: r.id,
-    name: r.name,
-    isActive: r.isActive,
-    triggerType: r.triggerType as WorkflowRuleShape["triggerType"],
-    conditions: r.conditions as WorkflowRuleShape["conditions"],
-    actions: r.actions as WorkflowRuleShape["actions"],
-  }));
+  const rules = rulesRaw.map(
+    (r): WorkflowRuleShape => ({
+      id: r.id,
+      name: r.name,
+      isActive: r.isActive,
+      triggerType: r.triggerType as WorkflowRuleShape["triggerType"],
+      conditions: r.conditions as WorkflowRuleShape["conditions"],
+      actions: r.actions as WorkflowRuleShape["actions"],
+    }),
+  );
 
   const assignment = evaluateAssignment(
     { serviceType: merged.serviceType, priority: merged.priority },
@@ -83,45 +97,65 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const reference = await nextCaseReference(tenant.id);
 
-  const created = await prisma.$transaction(async (tx) => {
-    const created = await tx.case.create({
-      data: {
-        tenantId: tenant.id,
-        reference,
-        status: merged.missingFields.length > 0 ? CaseStatus.AWAITING_INFO : CaseStatus.TRIAGE,
-        priority: merged.priority,
-        title: merged.summary || item.subject || "New case",
-        summary: merged.summary || null,
-        serviceType: merged.serviceType ?? null,
-        locationText: merged.locationText ?? null,
-        contactId: item.contactId,
-        teamId: assignment?.assignTeamId ?? null,
-        assigneeId: assignment?.assignUserId ?? null,
-      },
-    });
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.inboundItem.updateMany({
+        where: {
+          id: item.id,
+          approvedCaseId: null,
+          status: { notIn: [InboundStatus.APPROVED, InboundStatus.REJECTED] },
+        },
+        data: { status: InboundStatus.APPROVED },
+      });
+      if (claimed.count !== 1) {
+        throw new Error(ALREADY_REVIEWED_ERROR);
+      }
 
-    await tx.inboundItem.update({
-      where: { id: item.id },
-      data: { status: InboundStatus.APPROVED, approvedCaseId: created.id },
-    });
+      const created = await tx.case.create({
+        data: {
+          tenantId: tenant.id,
+          reference,
+          status: merged.missingFields.length > 0 ? CaseStatus.AWAITING_INFO : CaseStatus.TRIAGE,
+          priority: merged.priority,
+          title: merged.summary || item.subject || "New case",
+          summary: merged.summary || null,
+          serviceType: merged.serviceType ?? null,
+          locationText: merged.locationText ?? null,
+          contactId: item.contactId,
+          teamId: assignment?.assignTeamId ?? null,
+          assigneeId: assignment?.assignUserId ?? null,
+        },
+      });
 
-    // Record the reviewer's final extraction as a new ExtractionRun so the
-    // audit trail shows what the reviewer actually approved, not just what
-    // the AI proposed.
-    await tx.extractionRun.create({
-      data: {
-        tenantId: tenant.id,
-        inboundItemId: item.id,
-        modelName: "human-review",
-        promptVersion: extraction.promptVersion,
-        status: "approved",
-        confidenceScore: 1,
-        extractedData: merged as unknown as Prisma.InputJsonValue,
-      },
-    });
+      await tx.inboundItem.update({
+        where: { id: item.id },
+        data: { approvedCaseId: created.id },
+      });
 
-    return created;
-  });
+      // Record the reviewer's final extraction as a new ExtractionRun so the
+      // audit trail shows what the reviewer actually approved, not just what
+      // the AI proposed.
+      await tx.extractionRun.create({
+        data: {
+          tenantId: tenant.id,
+          inboundItemId: item.id,
+          modelName: "human-review",
+          promptVersion: extraction.promptVersion,
+          status: "approved",
+          confidenceScore: 1,
+          extractedData: merged as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === ALREADY_REVIEWED_ERROR) {
+      return NextResponse.json({ error: ALREADY_REVIEWED_ERROR }, { status: 409 });
+    }
+    throw error;
+  }
 
   // Acknowledgement draft (always).
   const contact = item.contactId

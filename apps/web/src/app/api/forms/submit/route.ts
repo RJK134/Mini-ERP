@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@ops-hub/db";
-import { upsertContact } from "@ops-hub/workflows";
+import { splitName, upsertContact } from "@ops-hub/workflows";
 import { ingestForm, type IngestAttachment } from "@/lib/intake";
 
 const FormFields = z.object({
@@ -17,12 +17,6 @@ const MAX_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 function externalId(): string {
   return `form-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function splitName(full: string): { first: string | null; last: string | null } {
-  const parts = full.trim().split(/\s+/);
-  if (parts.length <= 1) return { first: parts[0] ?? null, last: null };
-  return { first: parts.slice(0, -1).join(" "), last: parts.slice(-1).join(" ") };
 }
 
 export async function POST(req: NextRequest) {
@@ -53,14 +47,20 @@ export async function POST(req: NextRequest) {
       }
       const parsed = FormFields.safeParse(raw);
       if (!parsed.success) {
-        return NextResponse.json({ error: "invalid payload", issues: parsed.error.flatten() }, { status: 400 });
+        return NextResponse.json(
+          { error: "invalid payload", issues: parsed.error.flatten() },
+          { status: 400 },
+        );
       }
       fields = parsed.data;
     } else {
       const body = await req.json().catch(() => null);
       const parsed = FormFields.safeParse(body);
       if (!parsed.success) {
-        return NextResponse.json({ error: "invalid payload", issues: parsed.error.flatten() }, { status: 400 });
+        return NextResponse.json(
+          { error: "invalid payload", issues: parsed.error.flatten() },
+          { status: 400 },
+        );
       }
       fields = parsed.data;
     }

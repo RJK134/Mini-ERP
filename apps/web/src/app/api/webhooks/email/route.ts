@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@ops-hub/db";
-import { upsertContact } from "@ops-hub/workflows";
+import { splitName, upsertContact } from "@ops-hub/workflows";
 import { ingestEmail, type IngestAttachment } from "@/lib/intake";
 
 // Postmark inbound shape (also covers SendGrid Parse closely enough for v1).
@@ -37,13 +37,6 @@ function resolveTenantSlug(to: string | undefined): string | null {
   return match?.[1] ?? null;
 }
 
-function splitName(full: string | undefined): { first: string | null; last: string | null } {
-  if (!full) return { first: null, last: null };
-  const parts = full.trim().split(/\s+/);
-  if (parts.length === 1) return { first: parts[0] ?? null, last: null };
-  return { first: parts.slice(0, -1).join(" "), last: parts.slice(-1).join(" ") };
-}
-
 export async function POST(req: NextRequest) {
   if (!authenticate(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -52,7 +45,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = PostmarkLike.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid payload", issues: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "invalid payload", issues: parsed.error.flatten() },
+      { status: 400 },
+    );
   }
 
   const to = parsed.data.To ?? parsed.data.ToFull?.[0]?.Email ?? "";
@@ -75,7 +71,9 @@ export async function POST(req: NextRequest) {
   });
 
   const attachments: IngestAttachment[] = (parsed.data.Attachments ?? [])
-    .filter((a): a is z.infer<typeof PostmarkAttachment> & { Content: string } => Boolean(a.Content))
+    .filter((a): a is z.infer<typeof PostmarkAttachment> & { Content: string } =>
+      Boolean(a.Content),
+    )
     .map((a) => ({
       fileName: a.Name,
       ...(a.ContentType ? { mimeType: a.ContentType } : {}),

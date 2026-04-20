@@ -9,6 +9,17 @@ export interface UpsertContactInput {
   organization?: string | null;
 }
 
+export function splitName(full: string | null | undefined): {
+  first: string | null;
+  last: string | null;
+} {
+  const trimmed = full?.trim();
+  if (!trimmed) return { first: null, last: null };
+  const parts = trimmed.split(/\s+/);
+  if (parts.length <= 1) return { first: parts[0] ?? null, last: null };
+  return { first: parts.slice(0, -1).join(" "), last: parts.slice(-1).join(" ") };
+}
+
 // Dedupe by tenantId + lowercased email when present, else tenantId + phone.
 // Falls back to creating a new contact if neither is given.
 export async function upsertContact(input: UpsertContactInput) {
