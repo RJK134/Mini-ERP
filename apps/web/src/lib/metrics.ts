@@ -31,6 +31,7 @@ const OPEN_STATUSES: CaseStatus[] = [
 
 export async function getDashboardMetrics(tenantId: string): Promise<DashboardMetrics> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const firstReceivedAtPromise = firstReceivedAtByInboundItem(tenantId, sevenDaysAgo);
 
   const [
     inboxPending,
@@ -72,9 +73,9 @@ export async function getDashboardMetrics(tenantId: string): Promise<DashboardMe
       _count: { _all: true },
     }),
     // First reviewer action (approval) minus inbound receipt per item.
-    firstResponsePairs(tenantId, sevenDaysAgo),
+    firstResponsePairs(tenantId, sevenDaysAgo, firstReceivedAtPromise),
     // Extraction latency: gap from INBOUND_RECEIVED to EXTRACTION_RUN on same item.
-    extractionLatencyPairs(tenantId, sevenDaysAgo),
+    extractionLatencyPairs(tenantId, sevenDaysAgo, firstReceivedAtPromise),
     prisma.case.groupBy({
       by: ["assigneeId"],
       where: { tenantId, status: { in: OPEN_STATUSES }, assigneeId: { not: null } },
@@ -127,17 +128,13 @@ export async function getDashboardMetrics(tenantId: string): Promise<DashboardMe
   };
 }
 
-async function firstResponsePairs(tenantId: string, since: Date): Promise<number[]> {
+async function firstResponsePairs(
+  tenantId: string,
+  since: Date,
+  firstReceivedAtPromise: Promise<Map<string, Date>>,
+): Promise<number[]> {
   // Received → approved gap (in minutes) for inbound items approved within the window.
-  const received = await prisma.activityEvent.findMany({
-    where: {
-      tenantId,
-      type: ActivityType.INBOUND_RECEIVED,
-      inboundItemId: { not: null },
-      createdAt: { gte: since },
-    },
-    select: { inboundItemId: true, createdAt: true },
-  });
+  const firstReceivedAt = await firstReceivedAtPromise;
   const approved = await prisma.activityEvent.findMany({
     where: {
       tenantId,
@@ -147,33 +144,15 @@ async function firstResponsePairs(tenantId: string, since: Date): Promise<number
     },
     select: { inboundItemId: true, createdAt: true },
   });
-  const firstReceivedAt = new Map<string, Date>();
-  for (const e of received) {
-    const existing = e.inboundItemId ? firstReceivedAt.get(e.inboundItemId) : undefined;
-    if (e.inboundItemId && (!existing || e.createdAt < existing)) {
-      firstReceivedAt.set(e.inboundItemId, e.createdAt);
-    }
-  }
-  const minutes: number[] = [];
-  for (const e of approved) {
-    if (!e.inboundItemId) continue;
-    const start = firstReceivedAt.get(e.inboundItemId);
-    if (!start) continue;
-    minutes.push((e.createdAt.getTime() - start.getTime()) / 60_000);
-  }
-  return minutes;
+  return pairEventMinutes(approved, firstReceivedAt);
 }
 
-async function extractionLatencyPairs(tenantId: string, since: Date): Promise<number[]> {
-  const received = await prisma.activityEvent.findMany({
-    where: {
-      tenantId,
-      type: ActivityType.INBOUND_RECEIVED,
-      inboundItemId: { not: null },
-      createdAt: { gte: since },
-    },
-    select: { inboundItemId: true, createdAt: true },
-  });
+async function extractionLatencyPairs(
+  tenantId: string,
+  since: Date,
+  firstReceivedAtPromise: Promise<Map<string, Date>>,
+): Promise<number[]> {
+  const firstReceivedAt = await firstReceivedAtPromise;
   const extracted = await prisma.activityEvent.findMany({
     where: {
       tenantId,
@@ -183,6 +162,22 @@ async function extractionLatencyPairs(tenantId: string, since: Date): Promise<nu
     },
     select: { inboundItemId: true, createdAt: true },
   });
+  return pairEventMinutes(extracted, firstReceivedAt);
+}
+
+async function firstReceivedAtByInboundItem(
+  tenantId: string,
+  since: Date,
+): Promise<Map<string, Date>> {
+  const received = await prisma.activityEvent.findMany({
+    where: {
+      tenantId,
+      type: ActivityType.INBOUND_RECEIVED,
+      inboundItemId: { not: null },
+      createdAt: { gte: since },
+    },
+    select: { inboundItemId: true, createdAt: true },
+  });
   const firstReceivedAt = new Map<string, Date>();
   for (const e of received) {
     const existing = e.inboundItemId ? firstReceivedAt.get(e.inboundItemId) : undefined;
@@ -190,8 +185,15 @@ async function extractionLatencyPairs(tenantId: string, since: Date): Promise<nu
       firstReceivedAt.set(e.inboundItemId, e.createdAt);
     }
   }
+  return firstReceivedAt;
+}
+
+function pairEventMinutes(
+  events: Array<{ inboundItemId: string | null; createdAt: Date }>,
+  firstReceivedAt: Map<string, Date>,
+): number[] {
   const minutes: number[] = [];
-  for (const e of extracted) {
+  for (const e of events) {
     if (!e.inboundItemId) continue;
     const start = firstReceivedAt.get(e.inboundItemId);
     if (!start) continue;

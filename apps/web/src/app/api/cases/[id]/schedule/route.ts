@@ -43,8 +43,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     where: { id: c.id },
     data: {
       status: CaseStatus.SCHEDULED,
-      scheduledAt,
       ...timestampsFor(CaseStatus.SCHEDULED),
+      scheduledAt,
     },
   });
 

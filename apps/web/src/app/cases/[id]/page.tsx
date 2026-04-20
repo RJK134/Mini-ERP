@@ -129,7 +129,7 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
         </div>
       </div>
 
-      {(c.status === CaseStatus.QUALIFIED || c.status === CaseStatus.AWAITING_INFO) && (
+      {c.status === CaseStatus.QUALIFIED && (
         <Card className="mt-6">
           <CardHeader><h2 className="text-sm font-medium">Schedule</h2></CardHeader>
           <CardBody>
