@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@ops-hub/db";
 import { Card, CardBody, CardHeader } from "@ops-hub/ui";
 import { getCurrentTenant } from "@/lib/tenant";
@@ -50,7 +51,14 @@ export default async function AdminPage() {
       </Card>
 
       <Card>
-        <CardHeader><h2 className="text-sm font-medium">Workflow rules ({rules.length})</h2></CardHeader>
+        <CardHeader>
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-medium">Workflow rules ({rules.length})</h2>
+            <Link href="/admin/rules" className="text-sm text-slate-700 hover:underline">
+              Edit rules →
+            </Link>
+          </div>
+        </CardHeader>
         <CardBody>
           {rules.length === 0 ? (
             <div className="text-sm text-slate-500">No rules. Cases are assigned manually.</div>
@@ -59,7 +67,9 @@ export default async function AdminPage() {
               {rules.map((r) => (
                 <li key={r.id} className="rounded border border-slate-200 p-2">
                   <div className="font-medium">{r.name}</div>
-                  <div className="text-xs text-slate-500">trigger: {r.triggerType}</div>
+                  <div className="text-xs text-slate-500">
+                    {r.isActive ? "active" : "inactive"} · trigger: {r.triggerType}
+                  </div>
                 </li>
               ))}
             </ul>
