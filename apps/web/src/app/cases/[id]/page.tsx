@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@ops-hub/db";
 import { Card, CardBody, CardHeader, StatusPill } from "@ops-hub/ui";
 import { getCurrentTenant } from "@/lib/tenant";
+import { DraftsPanel, type DraftRow } from "./drafts-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,15 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
   });
 
   if (!c) notFound();
+
+  const draftRows: DraftRow[] = c.drafts.map((d) => ({
+    id: d.id,
+    draftType: d.draftType,
+    subject: d.subject,
+    body: d.body,
+    status: d.status,
+    createdAt: d.createdAt.toISOString(),
+  }));
 
   return (
     <div className="mx-auto max-w-5xl p-8">
@@ -45,7 +55,15 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
               <dt className="text-slate-500">Location</dt><dd>{c.locationText ?? "—"}</dd>
               <dt className="text-slate-500">Requested</dt><dd>{c.requestedDate?.toISOString().slice(0, 10) ?? "—"}</dd>
               <dt className="text-slate-500">Scheduled</dt><dd>{c.scheduledAt?.toISOString().slice(0, 16) ?? "—"}</dd>
-              <dt className="text-slate-500">Contact</dt><dd>{c.contact ? `${c.contact.firstName ?? ""} ${c.contact.lastName ?? ""}`.trim() : "—"}</dd>
+              <dt className="text-slate-500">Contact</dt>
+              <dd>
+                {c.contact ? (
+                  <>
+                    {`${c.contact.firstName ?? ""} ${c.contact.lastName ?? ""}`.trim() || "—"}
+                    {c.contact.email && <span className="ml-1 text-slate-500">&lt;{c.contact.email}&gt;</span>}
+                  </>
+                ) : "—"}
+              </dd>
             </dl>
           </CardBody>
         </Card>
@@ -105,6 +123,34 @@ export default async function CaseDetailPage({ params }: { params: { id: string 
           </CardBody>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader><h2 className="text-sm font-medium">Drafts ({c.drafts.length})</h2></CardHeader>
+        <CardBody>
+          <DraftsPanel drafts={draftRows} />
+        </CardBody>
+      </Card>
+
+      {c.messages.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader><h2 className="text-sm font-medium">Sent messages ({c.messages.length})</h2></CardHeader>
+          <CardBody>
+            <ul className="space-y-2 text-sm">
+              {c.messages.map((m) => (
+                <li key={m.id} className="rounded border border-slate-200 p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-900">{m.subject ?? "(no subject)"}</span>
+                    <span className="text-xs text-slate-500">
+                      {m.sentAt?.toISOString().replace("T", " ").slice(0, 16) ?? "—"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">to {m.recipient}</div>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
     </div>
   );
 }

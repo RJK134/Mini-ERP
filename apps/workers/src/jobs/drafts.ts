@@ -1,11 +1,16 @@
+// Drafts are primarily created inline by the approve endpoint (in apps/web)
+// so reviewers get them immediately. This job is a safety net for scenarios
+// where a Case is created outside the approve flow (e.g. manual entry) and
+// therefore has no acknowledgement draft yet.
+
 import { prisma, DraftType, ActivityType } from "@ops-hub/db";
 import { recordEvent } from "@ops-hub/workflows";
 
-// Picks new cases without an ACKNOWLEDGEMENT draft yet and creates one.
 export async function processPendingDrafts(): Promise<void> {
   const candidates = await prisma.case.findMany({
     where: {
       drafts: { none: { draftType: DraftType.ACKNOWLEDGEMENT } },
+      contactId: { not: null },
     },
     include: { contact: true, tenant: true },
     take: 10,
@@ -21,7 +26,7 @@ export async function processPendingDrafts(): Promise<void> {
       `will follow up within one working day to confirm next steps.\n\n` +
       `Best,\nThe ${tenantName} team`;
 
-    await prisma.messageDraft.create({
+    const draft = await prisma.messageDraft.create({
       data: {
         tenantId: c.tenantId,
         caseId: c.id,
@@ -36,7 +41,7 @@ export async function processPendingDrafts(): Promise<void> {
       tenantId: c.tenantId,
       type: ActivityType.DRAFT_GENERATED,
       caseId: c.id,
-      payload: { draftType: DraftType.ACKNOWLEDGEMENT },
+      payload: { draftType: DraftType.ACKNOWLEDGEMENT, draftId: draft.id, source: "worker" },
     });
   }
 }

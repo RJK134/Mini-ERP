@@ -12,6 +12,7 @@
     "test": "echo '(workers) no tests yet'"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
     "@ops-hub/db": "workspace:*",
     "@ops-hub/prompts": "workspace:*",
     "@ops-hub/workflows": "workspace:*"
