@@ -1,11 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { prisma, InboundSource, InboundStatus, ActivityType } from "@ops-hub/db";
-import { recordEvent } from "@ops-hub/workflows";
+import { prisma } from "@ops-hub/db";
+import { upsertContact } from "@ops-hub/workflows";
+import { ingestEmail, type IngestAttachment } from "@/lib/intake";
 
-// Generic inbound-email webhook receiver. Accepts a Postmark-ish payload and
-// normalises it into an InboundItem. Resolves tenant by the recipient address
-// e.g. inbound+<tenantSlug>@...
+// Postmark inbound shape (also covers SendGrid Parse closely enough for v1).
+const PostmarkAttachment = z.object({
+  Name: z.string(),
+  ContentType: z.string().optional(),
+  ContentLength: z.number().optional(),
+  Content: z.string().optional(), // base64
+});
+
 const PostmarkLike = z.object({
   MessageID: z.string(),
   From: z.string(),
@@ -15,15 +21,7 @@ const PostmarkLike = z.object({
   Subject: z.string().optional(),
   TextBody: z.string().optional(),
   HtmlBody: z.string().optional(),
-  Attachments: z
-    .array(
-      z.object({
-        Name: z.string(),
-        ContentType: z.string().optional(),
-        ContentLength: z.number().optional(),
-      }),
-    )
-    .optional(),
+  Attachments: z.array(PostmarkAttachment).optional(),
 });
 
 function authenticate(req: NextRequest): boolean {
@@ -39,6 +37,13 @@ function resolveTenantSlug(to: string | undefined): string | null {
   return match?.[1] ?? null;
 }
 
+function splitName(full: string | undefined): { first: string | null; last: string | null } {
+  if (!full) return { first: null, last: null };
+  const parts = full.trim().split(/\s+/);
+  if (parts.length === 1) return { first: parts[0] ?? null, last: null };
+  return { first: parts.slice(0, -1).join(" "), last: parts.slice(-1).join(" ") };
+}
+
 export async function POST(req: NextRequest) {
   if (!authenticate(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -47,7 +52,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = PostmarkLike.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "invalid payload" }, { status: 400 });
+    return NextResponse.json({ error: "invalid payload", issues: parsed.error.flatten() }, { status: 400 });
   }
 
   const to = parsed.data.To ?? parsed.data.ToFull?.[0]?.Email ?? "";
@@ -57,57 +62,37 @@ export async function POST(req: NextRequest) {
   }
 
   const tenant = await prisma.tenant.findUnique({ where: { slug } });
-  if (!tenant) {
-    return NextResponse.json({ error: "unknown tenant" }, { status: 404 });
-  }
+  if (!tenant) return NextResponse.json({ error: "unknown tenant" }, { status: 404 });
 
-  const email = parsed.data.From.trim().toLowerCase();
-  const contact = await prisma.contact.upsert({
-    where: {
-      // No @@unique on (tenantId, email) in schema; fall back to findFirst pattern.
-      id: `contact-${tenant.id}-${email}`,
-    },
-    update: {},
-    create: {
-      id: `contact-${tenant.id}-${email}`,
-      tenantId: tenant.id,
-      email,
-      firstName: parsed.data.FromName?.split(" ").slice(0, -1).join(" ") ?? null,
-      lastName: parsed.data.FromName?.split(" ").slice(-1).join(" ") ?? null,
-    },
-  });
+  const fromEmail = parsed.data.From.trim().toLowerCase();
+  const { first, last } = splitName(parsed.data.FromName);
 
-  const item = await prisma.inboundItem.upsert({
-    where: {
-      tenantId_source_externalId: {
-        tenantId: tenant.id,
-        source: InboundSource.EMAIL,
-        externalId: parsed.data.MessageID,
-      },
-    },
-    update: {},
-    create: {
-      tenantId: tenant.id,
-      source: InboundSource.EMAIL,
-      status: InboundStatus.RECEIVED,
-      externalId: parsed.data.MessageID,
-      subject: parsed.data.Subject ?? null,
-      fromName: parsed.data.FromName ?? null,
-      fromEmail: email,
-      receivedAt: new Date(),
-      contactId: contact.id,
-      normalizedText: (parsed.data.TextBody ?? parsed.data.HtmlBody ?? "").trim(),
-      rawPayload: parsed.data as unknown as object,
-    },
-  });
-
-  await recordEvent({
+  const contact = await upsertContact({
     tenantId: tenant.id,
-    type: ActivityType.INBOUND_RECEIVED,
-    inboundItemId: item.id,
-    payload: { source: "EMAIL" },
+    email: fromEmail,
+    firstName: first,
+    lastName: last,
   });
 
-  // TODO phase-2-extraction: enqueue extraction job here.
-  return NextResponse.json({ ok: true, inboundItemId: item.id });
+  const attachments: IngestAttachment[] = (parsed.data.Attachments ?? [])
+    .filter((a): a is z.infer<typeof PostmarkAttachment> & { Content: string } => Boolean(a.Content))
+    .map((a) => ({
+      fileName: a.Name,
+      ...(a.ContentType ? { mimeType: a.ContentType } : {}),
+      body: Buffer.from(a.Content, "base64"),
+    }));
+
+  const { inboundItem, reused } = await ingestEmail({
+    tenantId: tenant.id,
+    externalId: parsed.data.MessageID,
+    subject: parsed.data.Subject ?? null,
+    fromName: parsed.data.FromName ?? null,
+    fromEmail,
+    contactId: contact.id,
+    normalizedText: (parsed.data.TextBody ?? parsed.data.HtmlBody ?? "").trim(),
+    rawPayload: parsed.data as unknown as object,
+    attachments,
+  });
+
+  return NextResponse.json({ ok: true, inboundItemId: inboundItem.id, reused });
 }

@@ -1,4 +1,11 @@
-export { EXTRACTION_PROMPT, EXTRACTION_VERSION, type ExtractionResult } from "./extraction.js";
+export {
+  EXTRACTION_PROMPT,
+  EXTRACTION_SYSTEM_PROMPT,
+  EXTRACTION_USER_TEMPLATE,
+  EXTRACTION_VERSION,
+  type ExtractionResult,
+  type ExtractionPriority,
+} from "./extraction.js";
 export {
   ACKNOWLEDGEMENT_PROMPT,
   REQUEST_FOR_INFO_PROMPT,

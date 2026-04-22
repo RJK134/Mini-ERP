@@ -8,6 +8,7 @@ const nextConfig = {
     "@ops-hub/db",
     "@ops-hub/ui",
     "@ops-hub/prompts",
+    "@ops-hub/storage",
     "@ops-hub/workflows",
   ],
 };
